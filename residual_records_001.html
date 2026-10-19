@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#111820">
+<title>잔존 기록 — 001</title>
+<style>
+:root { color-scheme: dark; }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin:0; width:100%; height:100%; overflow:hidden; background:#101820; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; touch-action:none; }
+#game { position:fixed; inset:0; width:100%; height:100%; display:block; image-rendering:pixelated; }
+#hud { position:fixed; inset:0; pointer-events:none; color:#d5d9d8; }
+#chapter { position:absolute; top:calc(env(safe-area-inset-top) + 13px); left:18px; font-size:10px; letter-spacing:2px; opacity:.72; text-shadow:0 2px 3px #000; }
+#hint { position:absolute; left:50%; bottom:calc(env(safe-area-inset-bottom) + 25px); transform:translateX(-50%); width:max-content; max-width:86vw; padding:10px 13px; border:1px solid #a8b4b45c; background:#101820b8; color:#d9e0df; font-size:11px; letter-spacing:.5px; text-align:center; line-height:1.5; opacity:1; transition:opacity 1s; }
+#toast { position:absolute; left:50%; top:20%; transform:translateX(-50%); max-width:86vw; width:max-content; padding:12px 15px; background:#0b1114e8; border-left:2px solid #a8c1bd; color:#e5e9e7; font-size:12px; line-height:1.65; text-align:left; opacity:0; transition:opacity .25s; white-space:pre-line; }
+#toast.show { opacity:1; }
+#touchlabel { position:absolute; bottom:calc(env(safe-area-inset-bottom) + 82px); width:100%; display:flex; justify-content:space-between; padding:0 22px; font-size:9px; letter-spacing:2px; opacity:.25; }
+#overlay { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; padding:28px; background:#080d12; color:#d8dfdc; z-index:5; }
+#intro { max-width:440px; width:100%; }
+.kicker { font-size:10px; letter-spacing:4px; color:#91a5a5; margin-bottom:20px; }
+h1 { font-weight:400; font-size:clamp(26px, 6vw, 42px); letter-spacing:4px; margin:0 0 12px; }
+.sub { color:#829292; font-size:11px; letter-spacing:2px; margin-bottom:34px; }
+#intro p { color:#b3bfbd; font-size:13px; line-height:2; }
+#start { margin-top:24px; border:1px solid #8fa5a0; background:transparent; color:#e2e8e5; padding:14px 20px; width:100%; font:inherit; font-size:12px; letter-spacing:2px; }
+#start:active { background:#243334; }
+#ending { position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:6; background:#080d12f2; padding:30px; color:#e1e6e4; text-align:center; }
+#ending .inner { max-width:420px; line-height:2; }
+#ending button { margin-top:22px; background:none; color:#dce5e1; border:1px solid #879a96; padding:12px 18px; font:inherit; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="hud">
+  <div id="chapter">RESIDUAL RECORDS　/　001</div>
+  <div id="toast"></div>
+  <div id="touchlabel"><span>← 이동</span><span>이동 →</span></div>
+  <div id="hint">화면을 좌우로 스와이프해 이동하세요<br>빛나는 물체는 터치해서 조사할 수 있습니다</div>
+</div>
+<div id="overlay">
+  <div id="intro">
+    <div class="kicker">RECOVERY SYSTEM // 00:00</div>
+    <h1>잔존 기록</h1>
+    <div class="sub">기록 001 — 깨어난 사람</div>
+    <p>당신은 폐허가 된 도시에서 눈을 떴다.<br>마지막으로 무엇을 기억하는가?</p>
+    <p>복원 작업을 재개합니다.<br>잔존 기록을 확인하십시오.</p>
+    <button id="start">기록 열기　▶</button>
+  </div>
+</div>
+<div id="ending"><div class="inner"><div class="kicker">RECORD ERROR // 001</div><h1>기록되지 않은 사람</h1><p>세 개의 기록을 확인했습니다.<br><br>그런데 이상합니다.<br>기록에는 도시가 무너진 날짜가 있지만,<br>당신이 깨어난 날짜는 없습니다.</p><p>화면 한구석에 짧은 문장이 나타났다.</p><p>“관찰자가 돌아왔습니다.”</p><button id="again">처음부터 다시</button></div></div>
+<script>
+(() => {
+const canvas = document.getElementById('game'), ctx = canvas.getContext('2d');
+const toast = document.getElementById('toast'), hint = document.getElementById('hint');
+const overlay = document.getElementById('overlay'), ending = document.getElementById('ending');
+let W=0,H=0,dpr=1, running=false, worldX=0, playerX=170, playerY=0, facing=1, seen=new Set(), toastTimer, startTime=0, anomaly=0;
+const objects = [
+ {id:'terminal', x:330, label:'기록 단말기', text:'[복구 기록 01]\n대피 명령은 23:14에 발령되었다.\n하지만 대피소는 이미 17년 전에 폐쇄되었다.', clue:'기록의 날짜가 맞지 않는다.'},
+ {id:'photo', x:720, label:'젖은 사진', text:'사진 속에는 무너진 탑이 있다.\n뒷면에 날짜가 적혀 있다.\n\n재난 발생 17년 전.\n\n그리고 사진 한쪽에… 당신과 똑같은 사람이 서 있다.', clue:'사진 속 인물은 당신과 똑같다.'},
+ {id:'door', x:1180, label:'봉인된 문', text:'문 옆의 작은 표시등이 켜진다.\n\n“원본 사용자 확인 중…”\n\n“오류: 원본을 찾을 수 없습니다.”', clue:'시스템은 당신을 원본으로 인식하지 못한다.'}
+];
+function resize(){ dpr=Math.min(window.devicePixelRatio||1,2); W=innerWidth; H=innerHeight; canvas.width=Math.floor(W*dpr); canvas.height=Math.floor(H*dpr); canvas.style.width=W+'px'; canvas.style.height=H+'px'; ctx.setTransform(dpr,0,0,dpr,0,0); }
+addEventListener('resize',resize); resize();
+function rect(x,y,w,h,c){ctx.fillStyle=c;ctx.fillRect(Math.round(x),Math.round(y),Math.round(w),Math.round(h));}
+function line(x1,y1,x2,y2,c,w=1){ctx.strokeStyle=c;ctx.lineWidth=w;ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();}
+function text(s,x,y,size,color,align='left'){ctx.font=`${size}px monospace`;ctx.fillStyle=color;ctx.textAlign=align;ctx.fillText(s,x,y);}
+function drawSky(){
+ const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#111c29');g.addColorStop(.55,'#26343d');g.addColorStop(1,'#11191d');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+ // moon / haze
+ rect(W*.72,H*.17,44,3,'#a2adab15');rect(W*.68,H*.2,90,2,'#a2adab12');
+ for(let i=0;i<38;i++){let x=((i*173-worldX*.08)%(W+40)+W+40)%(W+40);let y=(i*71)%(H*.46);rect(x,y, i%5===0?2:1,1,'#9baeb044');}
+ // distant city silhouettes
+ for(let i=0;i<24;i++){let x=((i*93-worldX*.18)%(W+120)+W+120)%(W+120)-60;let bh=H*(.12+((i*17)%20)/100);rect(x,H*.64-bh,24+(i%4)*12,bh,'#1a272e');rect(x+5,H*.64-bh-5,8,5,'#1a272e');}
+ // giant tower always visible, slightly shifts
+ const tx=W*.72-worldX*.07;
+ rect(tx-25,H*.18,50,H*.49,'#0a1118');rect(tx-17,H*.12,34,H*.06,'#0b1219');rect(tx-9,H*.04,18,H*.08,'#0b1219');
+ rect(tx-2,H*.09,4,H*.53, anomaly>1?'#6f8c8a':'#35484e');
+ rect(tx-43,H*.37,86,3,'#0c151c');rect(tx-32,H*.51,64,2,'#0c151c');
+ // fog bands
+ for(let i=0;i<6;i++){let y=H*(.55+i*.055);rect(0,y,W,2,'#c1d0d009');}
+}
+function drawBuilding(x,y,w,h,variant=0){
+ rect(x,y-h,w,h,'#1b282d');rect(x+4,y-h+5,w-8,h-5,'#172329');
+ if(variant%2===0){rect(x+w*.2,y-h+12,3,12,'#566365');rect(x+w*.65,y-h+22,4,8,'#39484b');}
+ rect(x-4,y-h, w+8,3,'#202e33');
+}
+function drawWorld(){
+ drawSky();
+ const ground=H*.78;
+ // broken skyline and rubble
+ for(let i=0;i<18;i++){let x=((i*137-worldX*.65)%(W+180)+W+180)%(W+180)-70;let h=H*(.08+((i*13)%20)/100);drawBuilding(x,ground,55+(i%4)*18,h,i);}
+ rect(0,ground,W,H-ground,'#161e20');
+ // ground pixels and cracks
+ for(let i=0;i<85;i++){let x=((i*59-worldX)%(W+20)+W+20)%(W+20)-10;let y=ground+8+(i*19)%(H-ground-10);rect(x,y,3+(i%4)*3,1,'#354044');}
+ // foreground rubble
+ for(let i=0;i<15;i++){let x=((i*149-worldX*.9)%(W+100)+W+100)%(W+100)-30;rect(x,ground-6-(i%3)*4,16+(i%5)*4,6,'#263236');rect(x+5,ground-11-(i%3)*4,8,5,'#202b2f');}
+ // landmarks
+ const sx=x=>x-worldX+W*.12;
+ // broken streetlight
+ let lx=sx(130);rect(lx,ground-105,4,105,'#344247');rect(lx,ground-107,27,4,'#344247');rect(lx+22,ground-110,4,7,'#657b79');
+ // interactive objects
+ objects.forEach((o,i)=>{
+   let x=sx(o.x);
+   if(x<-100||x>W+100)return;
+   if(o.id==='terminal'){
+    rect(x-18,ground-54,38,50,'#27363a');rect(x-13,ground-46,28,17,'#0b1519');rect(x-9,ground-42,16,2,'#8ba6a0');rect(x-9,ground-37,20,2,'#58716f');rect(x-5,ground-22,12,3,'#607977');
+   } else if(o.id==='photo'){
+    rect(x-15,ground-45,30,26,'#c0c1b3');rect(x-11,ground-41,22,18,'#45565a');rect(x-8,ground-37,6,9,'#10191e');rect(x+1,ground-35,7,10,'#10191e');rect(x-13,ground-43,25,2,'#d3d3c8');
+   } else {
+    rect(x-28,ground-110,56,110,'#263438');rect(x-23,ground-105,46,105,'#1a2529');rect(x-5,ground-90,10,3,'#5d7978');rect(x-2,ground-87,4,9, anomaly>0?'#8ca8a2':'#344d4e');rect(x-34,ground-112,68,5,'#37464a');
+   }
+   const discovered=seen.has(o.id);
+   if(!discovered){let pulse=.55+.45*Math.sin(Date.now()/350+i);rect(x-22,ground-(o.id==='door'?125:65),44,1,`rgba(151,190,181,${.25+.35*pulse})`);text('!',x,ground-(o.id==='door'?133:73),12,'#c4d8d0','center');}
+ });
+ // protagonist
+ const px=W*.34, py=ground;
+ // shadow
+ rect(px-10,py-2,21,3,'#080e11');
+ // little pixel explorer
+ rect(px-5,py-35,10,10,'#0b1116');rect(px-4,py-34,3,3,'#9aa7a4'); // head
+ rect(px-7,py-24,14,15,'#10181d');rect(px-8,py-22,16,8,'#202d32');
+ rect(px-6,py-9,5,8,'#0b1217');rect(px+2,py-9,5,8,'#0b1217');
+ rect(px+(facing>0?5:-7),py-21,3,8,'#10181d');
+ // atmosphere vignette
+ const vg=ctx.createRadialGradient(W*.5,H*.52,H*.12,W*.5,H*.52,H*.72);vg.addColorStop(0,'#00000000');vg.addColorStop(1,'#020609a8');ctx.fillStyle=vg;ctx.fillRect(0,0,W,H);
+ // subtle scanline texture
+ for(let y=0;y<H;y+=4)rect(0,y,W,1,'#d7e4e003');
+}
+function showToast(message, duration=4200){toast.textContent=message;toast.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>toast.classList.remove('show'),duration);}
+function loop(){if(!running)return;drawWorld();requestAnimationFrame(loop);}
+function start(){overlay.style.display='none';running=true;startTime=Date.now();hint.style.opacity='1';setTimeout(()=>hint.style.opacity='.55',5000);showToast('복원 작업을 재개합니다.\n잔존 기록을 확인하십시오.',3800);loop();}
+document.getElementById('start').addEventListener('click',start);
+document.getElementById('again').addEventListener('click',()=>{seen.clear();worldX=0;anomaly=0;ending.style.display='none';running=true;drawWorld();showToast('기록 001이 초기화되었습니다.',2500);});
+function move(dx){if(!running||ending.style.display==='flex')return;worldX=Math.max(0,Math.min(1450,worldX+dx));facing=dx>=0?1:-1;if(worldX>700)anomaly=1;if(worldX>1200)anomaly=2;drawWorld();}
+let sx0=null, sy0=null, lastX=null, downTime=0, moved=false;
+canvas.addEventListener('pointerdown',e=>{if(!running)return;sx0=e.clientX;sy0=e.clientY;lastX=e.clientX;downTime=Date.now();moved=false;});
+canvas.addEventListener('pointermove',e=>{if(sx0===null||!running)return;const dx=e.clientX-lastX;if(Math.abs(e.clientX-sx0)>8)moved=true;if(moved){move(-dx*1.15);lastX=e.clientX;}});
+canvas.addEventListener('pointerup',e=>{
+ if(sx0===null||!running)return;
+ const dx=e.clientX-sx0, dy=e.clientY-sy0;
+ if(!moved && Math.abs(dx)<18 && Math.abs(dy)<18){interact(e.clientX,e.clientY);}
+ else if(!moved && Math.abs(dx)>20){move(-dx*1.2);}
+ sx0=null;sy0=null;lastX=null;
+});
+canvas.addEventListener('pointercancel',()=>{sx0=null;sy0=null;lastX=null;});
+function interact(x,y){
+ const ground=H*.78, worldTarget=worldX+(x-W*.12);
+ let nearest=null, dist=Infinity;
+ objects.forEach(o=>{let d=Math.abs(o.x-worldTarget);if(d<dist){dist=d;nearest=o;}});
+ if(nearest && dist<125){
+   if(!seen.has(nearest.id)){seen.add(nearest.id);anomaly=Math.min(2,anomaly+1);}
+   showToast(nearest.text,7000);
+   if(seen.size===3){setTimeout(()=>{ending.style.display='flex';running=false;},7200);}
+ } else if(x>W*.62 && worldX<1450){move(75);}
+ else if(x<W*.38 && worldX>0){move(-75);}
+ else {showToast('바람 소리만 들린다.\n도시가 숨을 쉬는 것 같다.',2500);}
+}
+let keyDown={};
+addEventListener('keydown',e=>{if(e.key==='ArrowRight'||e.key==='d')move(30);if(e.key==='ArrowLeft'||e.key==='a')move(-30);if(e.key===' '&&running)interact(W*.5,H*.6);});
+})();
+</script>
+</body>
+</html>
